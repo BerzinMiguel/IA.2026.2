@@ -3,14 +3,16 @@
 Dependências: pandas, requests e openpyxl (instale com
 ``python -m pip install pandas requests openpyxl``).
 
-O módulo guarda um arquivo bruto e um arquivo tratado para cada ativo. A
-planilha tratada contém somente Data, Hora e Valor, em ordem cronológica.
+O módulo guarda um arquivo bruto e um arquivo tratado para cada ativo. As
+planilhas são ordenadas da data mais antiga para a mais recente, deixando o
+último registro no fim para uso em previsões multistep.
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from datetime import date, datetime, time, timedelta
+from math import log
 from pathlib import Path
 from typing import Optional
 from urllib.parse import quote
@@ -125,6 +127,60 @@ def _normalizar_colunas(dados: pd.DataFrame) -> pd.DataFrame:
     dados["Valor"] = pd.to_numeric(dados["Valor"].astype(str).str.replace(",", ".", regex=False), errors="coerce")
     dados = dados.dropna(subset=["Data", "Valor"])
     return dados[colunas].sort_values(["Data", "Hora"], kind="stable", na_position="last").reset_index(drop=True)
+
+
+def gerar_planilha_volatilidade_diaria(
+    planilha: str | Path,
+    destino: str | Path | None = None,
+    coluna_valor: str = "Valor",
+    nome_ativo: Optional[str] = None,
+) -> Path:
+    """Gera uma planilha com Data, Volatilidade_Diaria e Ativo.
+
+    A volatilidade diária é o módulo do retorno logarítmico percentual entre
+    fechamentos consecutivos: ``abs(ln(preço_t / preço_t-1)) * 100``. Cada
+    resultado fica associado à data ``t`` (o fechamento mais recente usado),
+    sem usar dados de datas posteriores. A primeira data fica sem valor, pois
+    não há fechamento anterior para calcular o retorno.
+
+    ``planilha`` pode ser uma série diária do dólar ou de um ativo B3 com as
+    colunas ``Data`` e ``Valor``. Valores nulos, não numéricos ou não positivos
+    são descartados. Se houver mais de um registro no mesmo dia, mantém-se o
+    último da planilha de origem. A série resultante fica em ordem crescente.
+    """
+    origem = Path(planilha)
+    dados = pd.read_excel(origem)
+    if "Data" not in dados or coluna_valor not in dados:
+        raise ValueError("A planilha precisa conter as colunas 'Data' e 'Valor'.")
+
+    dados = dados.copy()
+    dados["Data"] = pd.to_datetime(dados["Data"], errors="coerce")
+    dados[coluna_valor] = pd.to_numeric(
+        dados[coluna_valor].astype(str).str.replace(",", ".", regex=False), errors="coerce"
+    )
+    dados = dados.dropna(subset=["Data", coluna_valor])
+    dados = dados[dados[coluna_valor] > 0]
+    dados = dados.sort_values("Data", kind="stable").drop_duplicates("Data", keep="last")
+    if nome_ativo is None:
+        nome_ativo = (
+            str(dados["Ativo"].dropna().iloc[0])
+            if "Ativo" in dados and not dados["Ativo"].dropna().empty
+            else origem.stem.replace("_bruto", "").replace("_tratado", "")
+        )
+
+    razoes = dados[coluna_valor].astype(float) / dados[coluna_valor].astype(float).shift(1)
+    volatilidade = razoes.map(lambda razao: pd.NA if pd.isna(razao) else abs(log(razao)) * 100)
+    resultado = pd.DataFrame({
+        "Data": dados["Data"].to_numpy(),
+        "Volatilidade_Diaria": volatilidade.to_numpy(),
+        "Ativo": nome_ativo,
+    })
+    if destino is None:
+        destino = origem.with_name(f"{origem.stem}_volatilidade_diaria.xlsx")
+    destino = Path(destino)
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    resultado.to_excel(destino, index=False)
+    return destino
 
 
 class TratadorDados:
