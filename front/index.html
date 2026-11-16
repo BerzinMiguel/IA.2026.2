@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IA Bolsa — Painel de Previsão</title>
+  <link rel="stylesheet" href="css/style.css">
+  <!-- Aplica o tema salvo antes de desenhar a página (evita "piscar") -->
+  <script>
+    (function () {
+      var tema = "claro";
+      try {
+        tema = localStorage.getItem("tema") ||
+          (window.matchMedia("(prefers-color-scheme: dark)").matches ? "escuro" : "claro");
+      } catch (e) {}
+      document.documentElement.setAttribute("data-tema", tema);
+    })();
+  </script>
+</head>
+<body>
+
+  <!-- ===== CABEÇALHO ===== -->
+  <header class="topo">
+    <div class="marca">
+      <span class="marca-icone">IA</span>
+      <div>
+        <h1>IA Bolsa</h1>
+        <p class="subtitulo">Inteligência de mercado</p>
+      </div>
+    </div>
+
+    <nav class="abas">
+      <button class="aba ativa" data-tela="tela-dashboard">Dashboard</button>
+      <button class="aba" data-tela="tela-historico">Histórico</button>
+      <button class="aba" data-tela="tela-desempenho">Desempenho da IA</button>
+    </nav>
+
+    <div class="topo-acoes">
+      <span class="atualizacao">Atualizado em <strong id="data-atualizacao">--/--/----</strong></span>
+      <button class="botao-tema" id="btn-tema" title="Alternar tema claro/escuro" aria-label="Alternar tema">
+        <svg class="icone-lua" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+        <svg class="icone-sol" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      </button>
+      <button class="botao" id="btn-atualizar">Atualizar</button>
+    </div>
+  </header>
+
+  <main class="conteudo">
+
+    <!-- ===== TELA 1: DASHBOARD ===== -->
+    <section id="tela-dashboard" class="tela ativa">
+      <header class="cabecalho-tela">
+        <div>
+          <p class="sobretitulo">Visão geral</p>
+          <h2>Posição do dia</h2>
+        </div>
+        <p class="descricao">Síntese da previsão multistep para dólar, bolsa e volatilidade, consolidada pelo modelo SVR.</p>
+      </header>
+
+      <!-- Recomendação atual -->
+      <article class="card card-recomendacao" id="card-recomendacao">
+        <p class="rotulo">Recomendação atual</p>
+        <h2 class="recomendacao" id="recomendacao-texto">--</h2>
+        <div class="recomendacao-detalhes">
+          <div>
+            <span class="rotulo">Fechamento previsto</span>
+            <strong id="fechamento-previsto">R$ --</strong>
+          </div>
+          <div>
+            <span class="rotulo">Variação prevista</span>
+            <strong id="variacao-prevista">-- %</strong>
+          </div>
+          <div>
+            <span class="rotulo">Data alvo</span>
+            <strong id="data-alvo">--/--/----</strong>
+          </div>
+        </div>
+        <p class="aviso" id="aviso">Demonstração acadêmica; não usar para decisões financeiras reais.</p>
+      </article>
+
+      <!-- Três indicadores previstos -->
+      <div class="grade-indicadores">
+        <article class="card indicador" id="indicador-dolar">
+          <p class="rotulo">Dólar (USD/BRL)</p>
+          <div class="valores">
+            <div><span class="mini">Atual</span><strong class="valor-atual">--</strong></div>
+            <div><span class="mini">Previsto</span><strong class="valor-previsto">--</strong></div>
+          </div>
+          <span class="variacao">-- %</span>
+        </article>
+
+        <article class="card indicador" id="indicador-bolsa">
+          <p class="rotulo">Bolsa (ação)</p>
+          <div class="valores">
+            <div><span class="mini">Atual</span><strong class="valor-atual">--</strong></div>
+            <div><span class="mini">Previsto</span><strong class="valor-previsto">--</strong></div>
+          </div>
+          <span class="variacao">-- %</span>
+        </article>
+
+        <article class="card indicador" id="indicador-volatilidade">
+          <p class="rotulo">Volatilidade</p>
+          <div class="valores">
+            <div><span class="mini">Atual</span><strong class="valor-atual">--</strong></div>
+            <div><span class="mini">Previsto</span><strong class="valor-previsto">--</strong></div>
+          </div>
+          <span class="variacao">-- %</span>
+        </article>
+      </div>
+
+      <!-- Gráfico resumo -->
+      <article class="card">
+        <div class="card-cabecalho">
+          <h3>Bolsa — últimos 30 dias</h3>
+        </div>
+        <div class="grafico" id="grafico-resumo"></div>
+      </article>
+    </section>
+
+    <!-- ===== TELA 2: HISTÓRICO ===== -->
+    <section id="tela-historico" class="tela">
+      <header class="cabecalho-tela">
+        <div>
+          <p class="sobretitulo">Séries temporais</p>
+          <h2>Histórico e comparativos</h2>
+        </div>
+        <p class="descricao">Evolução dos indicadores e aderência entre fechamento real e previsto.</p>
+      </header>
+
+      <article class="card">
+        <div class="card-cabecalho">
+          <h3>Histórico do indicador</h3>
+          <div class="filtros">
+            <select id="filtro-indicador">
+              <option value="bolsa">Bolsa</option>
+              <option value="dolar">Dólar</option>
+              <option value="volatilidade">Volatilidade</option>
+            </select>
+            <select id="filtro-periodo">
+              <option value="30">30 dias</option>
+              <option value="90">90 dias</option>
+              <option value="180">180 dias</option>
+              <option value="365">1 ano</option>
+            </select>
+          </div>
+        </div>
+        <div class="grafico" id="grafico-historico"></div>
+      </article>
+
+      <article class="card">
+        <div class="card-cabecalho">
+          <h3>Comparativo: real × previsto</h3>
+          <div class="legenda">
+            <span class="leg leg-real">Real</span>
+            <span class="leg leg-previsto">Previsto</span>
+          </div>
+        </div>
+        <div class="grafico" id="grafico-comparativo"></div>
+      </article>
+
+      <article class="card">
+        <div class="card-cabecalho">
+          <h3>Histórico de recomendações</h3>
+        </div>
+        <div class="tabela-wrapper">
+          <table class="tabela">
+            <thead>
+              <tr>
+                <th>Data</th>
+                <th>Fechamento previsto</th>
+                <th>Variação</th>
+                <th>Recomendação</th>
+              </tr>
+            </thead>
+            <tbody id="tabela-recomendacoes">
+              <tr><td colspan="4" class="vazio">Sem dados</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+
+    <!-- ===== TELA 3: DESEMPENHO DA IA ===== -->
+    <section id="tela-desempenho" class="tela">
+      <header class="cabecalho-tela">
+        <div>
+          <p class="sobretitulo">Modelo</p>
+          <h2>Desempenho da IA</h2>
+        </div>
+        <p class="descricao">Métricas de erro do SVR calculadas em validação cronológica.</p>
+      </header>
+
+      <div class="grade-metricas">
+        <article class="card metrica">
+          <p class="rotulo">MAE</p>
+          <strong id="metrica-mae">--</strong>
+          <span class="mini">Erro absoluto médio (R$)</span>
+        </article>
+        <article class="card metrica">
+          <p class="rotulo">RMSE</p>
+          <strong id="metrica-rmse">--</strong>
+          <span class="mini">Raiz do erro quadrático médio</span>
+        </article>
+        <article class="card metrica">
+          <p class="rotulo">MAPE</p>
+          <strong id="metrica-mape">-- %</strong>
+          <span class="mini">Erro percentual médio</span>
+        </article>
+        <article class="card metrica">
+          <p class="rotulo">Amostras</p>
+          <strong id="metrica-amostras">-- / --</strong>
+          <span class="mini">Treino / teste</span>
+        </article>
+      </div>
+
+      <article class="card">
+        <div class="card-cabecalho">
+          <h3>Erro da previsão por dia</h3>
+        </div>
+        <div class="grafico" id="grafico-erro"></div>
+      </article>
+
+      <article class="card">
+        <div class="card-cabecalho">
+          <h3>Avaliação do SVR (base de teste)</h3>
+        </div>
+        <div class="tabela-wrapper">
+          <table class="tabela">
+            <thead>
+              <tr>
+                <th>Data alvo</th>
+                <th>Real</th>
+                <th>Previsto</th>
+                <th>Erro</th>
+              </tr>
+            </thead>
+            <tbody id="tabela-avaliacao">
+              <tr><td colspan="4" class="vazio">Sem dados</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="observacao" id="metrica-observacao"></p>
+      </article>
+    </section>
+
+  </main>
+
+  <footer class="rodape">
+    Projeto acadêmico IA 2026.2 · Não constitui aconselhamento financeiro
+  </footer>
+
+  <script src="js/api.js"></script>
+  <script src="js/graficos.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
