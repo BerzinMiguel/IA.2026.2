@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from Bases_para_Treinamento import PreparadorBases
+from ia.bases import PreparadorBases
 
 
 class Multistep:

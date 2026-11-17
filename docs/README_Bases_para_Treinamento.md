@@ -10,7 +10,7 @@ python -m pip install pandas openpyxl
 ## Importação
 
 ```python
-from Bases_para_Treinamento import PreparadorBases
+from ia.bases import PreparadorBases
 
 preparador = PreparadorBases()
 ```

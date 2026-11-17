@@ -133,11 +133,18 @@ async function carregarHistorico() {
 }
 
 /* ===== TELA 3: DESEMPENHO DA IA ===== */
+/* O backend manda null quando ainda não há histórico avaliado (ou quando a IA
+   simulada está ativa, que não tem amostras de treino). Melhor "--" que 0,000. */
+function ouTraco(valor, formatar) {
+  return (valor === null || valor === undefined) ? "--" : formatar(valor);
+}
+
 function exibirMetricas(m) {
-  document.getElementById("metrica-mae").textContent = formatarNumero(m.MAE, 3);
-  document.getElementById("metrica-rmse").textContent = formatarNumero(m.RMSE, 3);
-  document.getElementById("metrica-mape").textContent = formatarNumero(m.MAPE_pct, 2) + " %";
-  document.getElementById("metrica-amostras").textContent = `${m.amostras_treino} / ${m.amostras_teste}`;
+  document.getElementById("metrica-mae").textContent = ouTraco(m.MAE, v => formatarNumero(v, 3));
+  document.getElementById("metrica-rmse").textContent = ouTraco(m.RMSE, v => formatarNumero(v, 3));
+  document.getElementById("metrica-mape").textContent = ouTraco(m.MAPE_pct, v => formatarNumero(v, 2) + " %");
+  document.getElementById("metrica-amostras").textContent =
+    `${ouTraco(m.amostras_treino, v => v)} / ${ouTraco(m.amostras_teste, v => v)}`;
   document.getElementById("metrica-observacao").textContent = m.observacao || "";
 }
 

@@ -10,7 +10,7 @@ python -m pip install numpy pandas openpyxl
 ## Importação e uso
 
 ```python
-from Multistep import Multistep
+from ia.multistep import Multistep
 
 modelo = Multistep()
 previsoes = modelo.Modelo_multistep(

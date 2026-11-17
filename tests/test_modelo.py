@@ -2,7 +2,7 @@ import unittest
 import numpy as np
 import pandas as pd
 from tempfile import TemporaryDirectory
-from ia_svr.modelo import ModeloSVR, recomendar
+from ia.svr.modelo import ModeloSVR, recomendar
 
 class TestSVR(unittest.TestCase):
     def test_recomendacoes(self):
