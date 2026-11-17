@@ -1,7 +1,27 @@
-"""CLI para treino OOS ou inferência do pipeline integrado."""
+"""CLI de treino OOS ou inferência do pipeline integrado (Multistep + SVR).
+
+Treinar e salvar o artefato:
+
+    python scripts/treinar_svr.py --dolar dados/Dolar_tratado.xlsx \
+        --bolsa dados/Acao_Petrobras_tratado.xlsx \
+        --volatilidade resultados/volatilidade.xlsx --saida resultados
+
+Reaproveitar um artefato já treinado (dispensa as bases):
+
+    python scripts/treinar_svr.py --carregar resultados/pipeline.joblib
+
+Para o backend usar esse artefato em vez de treinar a cada execução:
+
+    IA_ARTEFATO=resultados/pipeline.joblib python scripts/atualizar.py
+"""
 import argparse
 import json
-from ia_svr.integracao import PipelineIntegrado
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from ia.svr.integracao import PipelineIntegrado  # noqa: E402
 
 
 def main():

@@ -1,4 +1,4 @@
-"""Lê arquivos Excel gerados pelo Tratamento_Dados.py do grupo."""
+"""Lê arquivos Excel gerados pelo tratamento de dados (ia/tratamento.py)."""
 import pandas as pd
 
 

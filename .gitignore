@@ -1,6 +1,8 @@
 .venv/
+venv/
 __pycache__/
-.pytest_cache/
-resultados/
-dados/
 *.pyc
+.pytest_cache/
+# Planilhas, banco local e artefatos de modelo não vão para o Git
+dados/
+resultados/

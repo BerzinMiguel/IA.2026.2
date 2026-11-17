@@ -22,7 +22,7 @@ As planilhas ficam em ordem cronol√≥gica crescente, com a data mais recente na √
 Exemplo:
 
 ```python
-from Tratamento_Dados import gerar_planilha_volatilidade_diaria
+from ia.tratamento import gerar_planilha_volatilidade_diaria
 
 arquivo = gerar_planilha_volatilidade_diaria("dados/PETR4_tratado.xlsx")
 print(arquivo)

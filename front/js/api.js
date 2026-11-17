@@ -1,14 +1,23 @@
 /* =========================================================
    api.js — Comunicação com o backend
    ---------------------------------------------------------
-   Enquanto USAR_MOCK = true, as funções devolvem dados
-   falsos para a tela funcionar sem backend.
-   Quem fizer o backend: implemente os endpoints abaixo,
-   troque USAR_MOCK para false e ajuste API_URL.
+   O backend (Flask) serve este front e a API na mesma origem:
+
+       python run.py   ->   http://localhost:8000
+
+   Abrindo o front por fora (Live Server, arquivo local), as
+   chamadas vão para http://localhost:8000/api, e o backend
+   libera CORS.
+
+   USAR_MOCK = true volta aos dados falsos, úteis para mexer
+   no layout sem subir o backend.
    ========================================================= */
 
-const API_URL = "http://localhost:8000/api";
-const USAR_MOCK = true;
+const PORTA_BACKEND = 8000;
+const MESMA_ORIGEM = location.protocol.startsWith("http") &&
+  (location.port === String(PORTA_BACKEND) || location.port === "");
+const API_URL = (MESMA_ORIGEM ? "" : `http://localhost:${PORTA_BACKEND}`) + "/api";
+const USAR_MOCK = false;
 
 /* Requisição genérica: trata erro e converte para JSON */
 async function requisitar(caminho, opcoes = {}) {
@@ -17,28 +26,31 @@ async function requisitar(caminho, opcoes = {}) {
     ...opcoes,
   });
   if (!resposta.ok) {
-    throw new Error(`Erro ${resposta.status} em ${caminho}`);
+    const corpo = await resposta.json().catch(() => ({}));
+    throw new Error(corpo.erro || `Erro ${resposta.status} em ${caminho}`);
   }
   return resposta.json();
 }
 
 /* ---------------------------------------------------------
    GET /api/previsao/atual
-   Retorna a previsão do dia (multistep + SVR).
-   Formato esperado:
+   Previsão mais recente (multistep + SVR) já gravada pelo backend.
    {
-     "data_atualizacao": "2026-11-16",
+     "data_atualizacao": "2026-11-13",
      "data_alvo": "2026-11-17",
      "indicadores": {
        "dolar":        { "atual": 5.31,  "previsto": 5.28 },
        "bolsa":        { "atual": 37.80, "previsto": 38.65 },
        "volatilidade": { "atual": 1.42,  "previsto": 1.35 }
      },
-     "fechamento_previsto": 38.65,
+     "fechamento_previsto": 38.65,       // saída do SVR
      "recomendacao": "APLICAR",          // APLICAR | MANTER | RETIRAR
      "variacao_prevista_pct": 2.249,
-     "aviso": "Demonstração acadêmica; ..."
+     "confianca": 0.56,
+     "versao_modelo": "multistep+svr-d12-h2-t2025-07-17",
+     "aviso": "Protótipo acadêmico. ..."
    }
+   404 enquanto nenhuma previsão foi gerada (rode POST /api/atualizar).
    --------------------------------------------------------- */
 async function buscarPrevisaoAtual() {
   if (USAR_MOCK) return mockPrevisaoAtual();
@@ -48,8 +60,9 @@ async function buscarPrevisaoAtual() {
 /* ---------------------------------------------------------
    GET /api/historico?indicador=bolsa&dias=30
    indicador: "dolar" | "bolsa" | "volatilidade"
-   Formato esperado: [ { "data": "2026-10-17", "valor": 37.12 }, ... ]
-   (ordem cronológica crescente)
+   [ { "data": "2026-10-17", "valor": 37.12 }, ... ]
+   Ordem cronológica crescente; `dias` conta pregões com dado,
+   não dias de calendário.
    --------------------------------------------------------- */
 async function buscarHistorico(indicador, dias) {
   if (USAR_MOCK) return mockHistorico(indicador, dias);
@@ -58,10 +71,10 @@ async function buscarHistorico(indicador, dias) {
 
 /* ---------------------------------------------------------
    GET /api/recomendacoes?dias=30
-   Histórico das recomendações salvas diariamente.
-   Formato esperado:
-   [ { "data": "2026-11-14", "fechamento_previsto": 37.9,
-       "variacao_prevista_pct": 0.8, "recomendacao": "MANTER" }, ... ]
+   Recomendações gravadas, da mais recente para a mais antiga.
+   [ { "data": "2026-11-13", "data_alvo": "2026-11-17",
+       "fechamento_previsto": 37.9, "variacao_prevista_pct": 0.8,
+       "recomendacao": "MANTER", "confianca": 0.2 }, ... ]
    --------------------------------------------------------- */
 async function buscarRecomendacoes(dias = 30) {
   if (USAR_MOCK) return mockRecomendacoes(dias);
@@ -70,9 +83,10 @@ async function buscarRecomendacoes(dias = 30) {
 
 /* ---------------------------------------------------------
    GET /api/avaliacao
-   Conteúdo do resultados/avaliacao_svr.csv em JSON.
-   Formato esperado:
-   [ { "data_alvo": "2026-10-01", "real": 37.1, "previsto": 36.9, "erro": 0.2 }, ... ]
+   Previsões passadas que já têm fechamento real (erro = real - previsto).
+   [ { "data_referencia": "2026-09-29", "data_alvo": "2026-10-01",
+       "real": 37.1, "previsto": 36.9, "erro": 0.2,
+       "recomendacao": "aplicar" }, ... ]
    --------------------------------------------------------- */
 async function buscarAvaliacao() {
   if (USAR_MOCK) return mockAvaliacao();
@@ -81,11 +95,13 @@ async function buscarAvaliacao() {
 
 /* ---------------------------------------------------------
    GET /api/metricas
-   Conteúdo do resultados/metricas_svr.json.
-   Formato esperado:
-   { "amostras_treino": 400, "amostras_teste": 100,
-     "MAE": 0.42, "RMSE": 0.57, "MAPE_pct": 1.13,
-     "observacao": "..." }
+   { "MAE": 0.42, "RMSE": 0.57, "MAPE_pct": 1.13,
+     "acerto_direcao": 0.54, "n_avaliadas": 60,
+     "amostras_treino": 1318, "amostras_teste": 330,
+     "versao_modelo": "...", "observacao": "..." }
+   MAE/RMSE/MAPE saem do histórico walk-forward gravado pelo
+   backend; amostras_treino/teste vêm do treino do SVR e ficam
+   nulas quando a IA simulada está ativa.
    --------------------------------------------------------- */
 async function buscarMetricas() {
   if (USAR_MOCK) return mockMetricas();
@@ -94,9 +110,10 @@ async function buscarMetricas() {
 
 /* ---------------------------------------------------------
    POST /api/atualizar
-   Pede ao backend para coletar o fechamento do dia,
-   retreinar e gerar nova previsão.
-   Formato esperado: { "status": "ok", "data_atualizacao": "2026-11-16" }
+   Roda o pipeline do dia: histórico -> multistep -> SVR ->
+   recomendação -> gravação.
+   { "status": "ok" | "ja_existia", "data_atualizacao": "2026-11-13",
+     "recomendacao": "manter", "execucao_id": 61 }
    --------------------------------------------------------- */
 async function solicitarAtualizacao() {
   if (USAR_MOCK) return { status: "ok", data_atualizacao: hojeISO() };
@@ -105,7 +122,7 @@ async function solicitarAtualizacao() {
 
 
 /* =========================================================
-   DADOS FALSOS (MOCK) — apagar quando o backend estiver pronto
+   DADOS FALSOS (MOCK) — só entram em cena com USAR_MOCK = true
    ========================================================= */
 
 function hojeISO(deslocamentoDias = 0) {

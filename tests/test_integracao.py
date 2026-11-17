@@ -4,9 +4,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import numpy as np
 import pandas as pd
-from Multistep import Multistep
-from ia_svr import PipelineIntegrado, recomendar
-from ia_svr.integracao import carregar_bases
+from ia.multistep import Multistep
+from ia.svr import PipelineIntegrado, recomendar
+from ia.svr.integracao import carregar_bases
 
 
 def bases(n=90):
@@ -123,13 +123,13 @@ class TestIntegracao(unittest.TestCase):
         import subprocess
         import sys
         raiz = Path(__file__).resolve().parents[1]
-        falha = subprocess.run([sys.executable, "executar_svr.py"], cwd=raiz,
+        falha = subprocess.run([sys.executable, "scripts/treinar_svr.py"], cwd=raiz,
                                capture_output=True, text=True)
         self.assertEqual(falha.returncode, 2)
         with TemporaryDirectory() as pasta:
             pipe = self.pipeline()
             pipe.treinar(*bases(), pasta_saida=pasta)
-            resultado = subprocess.run([sys.executable, "executar_svr.py", "--carregar",
+            resultado = subprocess.run([sys.executable, "scripts/treinar_svr.py", "--carregar",
                                          str(Path(pasta) / "pipeline.joblib")], cwd=raiz,
                                         capture_output=True, text=True, encoding="utf-8",
                                         env={**__import__("os").environ, "PYTHONIOENCODING": "utf-8"})

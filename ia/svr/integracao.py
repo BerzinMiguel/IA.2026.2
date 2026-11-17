@@ -6,8 +6,8 @@ import numpy as np
 import pandas as pd
 from sklearn.base import clone
 from sklearn.metrics import mean_absolute_error, mean_squared_error
-from Multistep import Multistep
-from Bases_para_Treinamento import PreparadorBases
+from ia.multistep import Multistep
+from ia.bases import PreparadorBases
 from .modelo import COLUNAS, ModeloSVR, recomendar
 
 

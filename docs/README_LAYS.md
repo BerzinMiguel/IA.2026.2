@@ -20,9 +20,9 @@ Não se trata de índice VIX ou desvio padrão móvel. A volatilidade pode ser z
 Escolha e mantenha a mesma ação e definição em treino e produção.
 
 ```powershell
-.venv/Scripts/python.exe -c "from Tratamento_Dados import gerar_planilha_volatilidade_diaria; gerar_planilha_volatilidade_diaria('dados/Ação_Petrobras_tratado.xlsx', 'dados/volatilidade.xlsx')"
-.venv/Scripts/python.exe executar_svr.py --dolar "dados/Dólar_tratado.xlsx" --bolsa "dados/Ação_Petrobras_tratado.xlsx" --volatilidade dados/volatilidade.xlsx --horizonte 2 --saida resultados
-.venv/Scripts/python.exe executar_svr.py --carregar resultados/pipeline.joblib
+.venv/Scripts/python.exe -c "from ia.tratamento import gerar_planilha_volatilidade_diaria; gerar_planilha_volatilidade_diaria('dados/Ação_Petrobras_tratado.xlsx', 'dados/volatilidade.xlsx')"
+.venv/Scripts/python.exe scripts/treinar_svr.py --dolar "dados/Dólar_tratado.xlsx" --bolsa "dados/Ação_Petrobras_tratado.xlsx" --volatilidade dados/volatilidade.xlsx --horizonte 2 --saida resultados
+.venv/Scripts/python.exe scripts/treinar_svr.py --carregar resultados/pipeline.joblib
 ```
 
 A CLI termina com código 2 em erros de dados/configuração. Não baixa dados.
@@ -35,7 +35,7 @@ formatos opcionais desse leitor (Parquet, XLS antigo etc.) exigem seus próprios
 Treine fora da requisição HTTP; carregue uma vez no backend:
 
 ```python
-from ia_svr import PipelineIntegrado
+from ia.svr import PipelineIntegrado
 
 pipeline = PipelineIntegrado(dimensao=12, horizonte=2, minimo_treino=60)
 metricas = pipeline.treinar(

@@ -1,3 +1,12 @@
+> Nota: este relatório é anterior à reorganização de pastas. Os caminhos citados
+> mudaram: `Multistep.py` para `ia/multistep.py`, `Bases_para_Treinamento.py`
+> para `ia/bases.py`, `Tratamento_Dados.py` para `ia/tratamento.py`, `ia_svr/`
+> para `ia/svr/` e `executar_svr.py` para `scripts/treinar_svr.py`. As pendências
+> listadas no fim (rotas HTTP, escolha do horizonte, calendário futuro e
+> agendamento) estão atendidas em `backend/` e `ia/adaptador.py`. Artefatos
+> `pipeline.joblib` gerados antes da mudança precisam ser treinados de novo,
+> porque o joblib guarda o caminho antigo do módulo.
+
 # Verificação da integração — 16/11/2026
 
 ## Código examinado e decisão
