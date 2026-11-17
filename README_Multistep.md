@@ -27,3 +27,10 @@ previsoes = modelo.Modelo_multistep(
 - `Modelo_multistep`: executa as duas etapas e retorna previsões `[t+1, ..., t+horizonte]` na escala original.
 
 Cada horizonte é ajustado separadamente com `β = pinv(X) @ y`. Validação e teste são usados como histórico recente para prever após o último dado disponível; não participam do ajuste dos coeficientes. Os arquivos precisam ter a mesma coluna-alvo; seu índice começa em zero.
+
+## Integração temporal com SVR
+
+`prever_serie(treino, historico, dimensao, horizonte)` oferece a mesma regressão
+em memória, com validações de finitude e tamanho. Veja README_LAYS.md para
+o pipeline dos três indicadores e treino fora da amostra. Os métodos originais
+continuam disponíveis e preservam seu comportamento com arquivos.

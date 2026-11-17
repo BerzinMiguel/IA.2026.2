@@ -1,20 +1,36 @@
+"""CLI para treino OOS ou inferência do pipeline integrado."""
 import argparse
 import json
-from ia_svr.dados import juntar_series
-from ia_svr.modelo import ModeloSVR
+from ia_svr.integracao import PipelineIntegrado
 
-p = argparse.ArgumentParser(description='Treina e testa SVR demonstrativo')
-p.add_argument('--dolar', required=True, help='Excel tratado do dólar')
-p.add_argument('--bolsa', required=True, help='Excel tratado da ação')
-p.add_argument('--volatilidade', required=True, help='Excel tratado de volatilidade')
-p.add_argument('--saida', default='resultados')
-a = p.parse_args()
-dados = juntar_series(a.dolar, a.bolsa, a.volatilidade)
-modelo = ModeloSVR()
-metricas = modelo.treinar(dados, a.saida)
-modelo.salvar(f'{a.saida}/modelo_svr.joblib')
-ultimo = dados.iloc[-1]
-resultado = modelo.prever(ultimo['dolar'], ultimo['bolsa'], ultimo['volatilidade'])
-print('MÉTRICAS:', json.dumps(metricas, ensure_ascii=False, indent=2))
-print('EXEMPLO DE PREVISÃO:', json.dumps(resultado, ensure_ascii=False, indent=2))
-print('Atenção: este protótipo usa valores observados, não previsões multistep.')
+
+def main():
+    p = argparse.ArgumentParser(description="Multistep + SVR com avaliação temporal")
+    p.add_argument("--dolar")
+    p.add_argument("--bolsa")
+    p.add_argument("--volatilidade")
+    p.add_argument("--carregar", help="pipeline.joblib confiável; dispensa as bases")
+    p.add_argument("--saida", default="resultados")
+    p.add_argument("--dimensao", type=int, default=12)
+    p.add_argument("--horizonte", type=int, default=2)
+    p.add_argument("--minimo-treino", type=int, default=60)
+    p.add_argument("--datas-alvo", nargs="+")
+    a = p.parse_args()
+    if a.carregar and any((a.dolar, a.bolsa, a.volatilidade)):
+        p.error("Use --carregar ou as três bases, separadamente.")
+    if not a.carregar and not all((a.dolar, a.bolsa, a.volatilidade)):
+        p.error("Informe --dolar, --bolsa e --volatilidade, ou --carregar.")
+    try:
+        if a.carregar:
+            pipeline = PipelineIntegrado.carregar(a.carregar)
+        else:
+            pipeline = PipelineIntegrado(a.dimensao, a.horizonte, a.minimo_treino)
+            pipeline.treinar(a.dolar, a.bolsa, a.volatilidade, a.saida)
+        print(json.dumps({"metricas": pipeline.metricas, "resultado": pipeline.prever(a.datas_alvo)},
+                         ensure_ascii=False, indent=2, allow_nan=False))
+    except (ValueError, RuntimeError, OSError, ImportError) as erro:
+        p.exit(2, f"Erro: {erro}\n")
+
+
+if __name__ == "__main__":
+    main()
