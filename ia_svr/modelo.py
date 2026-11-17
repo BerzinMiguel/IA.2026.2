@@ -15,7 +15,9 @@ def recomendar(preco_atual: float, preco_previsto: float, limiar: float = 0.02) 
     """Classificação ilustrativa; não constitui aconselhamento financeiro."""
     if preco_atual <= 0 or not np.isfinite([preco_atual, preco_previsto]).all():
         raise ValueError('Preços devem ser finitos e o atual positivo.')
-    variacao = (preco_previsto / preco_atual) - 1
+    if not np.isfinite(limiar) or limiar < 0:
+        raise ValueError('Limiar deve ser finito e não negativo.')
+    variacao = (preco_previsto - preco_atual) / preco_atual
     acao = 'APLICAR' if variacao > limiar else 'RETIRAR' if variacao < -limiar else 'MANTER'
     return {'recomendacao': acao, 'variacao_prevista_pct': round(100 * variacao, 3),
             'aviso': 'Demonstração acadêmica; não usar para decisões financeiras reais.'}

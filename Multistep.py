@@ -14,6 +14,42 @@ class Multistep:
         self.escala = None
 
     @staticmethod
+    def prever_serie(treino, historico, dimensao, horizonte):
+        """MQO direto em memória; escala e coeficientes usam só treino.
+
+        Retorna [t+1,...,t+H] na unidade original. O chamador garante
+        que treino e histórico contêm apenas observações disponíveis em t.
+        """
+        if any(isinstance(v, bool) or not isinstance(v, int) or v < 1
+               for v in (dimensao, horizonte)):
+            raise ValueError("Dimensão e horizonte devem ser inteiros positivos.")
+        treino = np.asarray(treino, dtype=float)
+        historico = np.asarray(historico, dtype=float)
+        if treino.ndim != 1 or historico.ndim != 1:
+            raise ValueError("Esperadas séries unidimensionais.")
+        if len(treino) < dimensao + horizonte or len(historico) < dimensao:
+            raise ValueError("Histórico insuficiente para dimensão e horizonte.")
+        if not np.isfinite(treino).all() or not np.isfinite(historico).all():
+            raise ValueError("Séries devem conter somente valores finitos.")
+        minimo, maximo = treino.min(), treino.max()
+        if minimo == maximo:
+            raise ValueError("Série constante no treino: escala Min-Max indefinida.")
+        serie = (treino - minimo) / (maximo - minimo)
+        janela = np.r_[(historico[-dimensao:] - minimo) / (maximo - minimo), 1.0]
+        previsoes = []
+        for h in range(1, horizonte + 1):
+            X, y = [], []
+            for alvo in range(dimensao + h - 1, len(serie)):
+                inicio = alvo - h - dimensao + 1
+                X.append(np.r_[serie[inicio:inicio + dimensao], 1.0])
+                y.append(serie[alvo])
+            previsoes.append(float(janela @ (np.linalg.pinv(X) @ y)))
+        resultado = np.asarray(previsoes) * (maximo - minimo) + minimo
+        if not np.isfinite(resultado).all():
+            raise ValueError("Multistep produziu previsão não finita.")
+        return resultado
+
+    @staticmethod
     def _nome_coluna(base, coluna):
         """Aceita o nome da coluna ou sua posição (começando em zero)."""
         if isinstance(coluna, str):
