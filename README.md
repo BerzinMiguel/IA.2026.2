@@ -13,23 +13,39 @@ comparar previsão com o que realmente aconteceu.
 
 ```bash
 pip install -r requirements.txt
-python scripts/importar_dados.py --exemplo      # ou com as planilhas reais (abaixo)
-python scripts/atualizar.py --backfill 30       # gera o histórico das telas 2 e 3
-python run.py                                   # http://localhost:8000
+python scripts/importar_dados.py --reais              # planilhas que já vêm no repositório
+IA_MAX_OBS_TREINO=300 python scripts/atualizar.py --backfill 30
+IA_MAX_OBS_TREINO=300 python run.py                   # http://localhost:8000
 ```
 
 O `run.py` serve a API **e** o dashboard na mesma porta: abra
 `http://localhost:8000` e o front já estará falando com o backend.
 Para checar só a API: `http://localhost:8000/api/health`.
 
-Com as planilhas do tratamento de dados (CSV ou XLSX, formato BR ou ISO):
+### Dados
+
+O repositório já traz as séries tratadas em `dados/`, para um clone novo
+funcionar sem rede: dólar PTAX de venda (série 10813 do Banco Central) e
+fechamento da PETR4, de 02/01/2020 em diante, mais a volatilidade derivada da
+ação. São dados públicos, usados aqui para fim acadêmico.
+
+Para atualizar com pregões novos:
 
 ```bash
-python scripts/importar_dados.py \
-  --dolar dados/Dólar_tratado.xlsx \
-  --bolsa "dados/Ação_Petrobras_tratado.xlsx" \
-  --volatilidade resultados/volatilidade.xlsx     # se omitir, calcula da bolsa
+python scripts/baixar_dados.py          # baixa, trata e regrava dados/
+python scripts/importar_dados.py --reais
 ```
+
+Com planilhas suas (CSV ou XLSX, formato BR ou ISO):
+
+```bash
+python scripts/importar_dados.py --dolar dados/dolar.csv --bolsa dados/acao.csv \
+  --volatilidade dados/volatilidade.xlsx     # se omitir, calcula a partir da bolsa
+```
+
+Sem dados nenhum, `--exemplo` gera uma série sintética. Ela serve para mexer no
+front, não para avaliar o modelo: é um passeio aleatório, e o nível dos preços
+pode ficar longe da realidade.
 
 Testes: `pytest -q` (backend, IA e integração; o do adaptador treina o modelo
 de verdade em séries curtas).
@@ -144,9 +160,10 @@ Medido nesta máquina, com a série de exemplo (1.792 pregões):
 
 | Operação | Tempo |
 |----------|-------|
-| `scripts/atualizar.py --backfill 30` (treino + 30 execuções) | ~3 min 40 s |
+| `atualizar.py --backfill 30` com `IA_MAX_OBS_TREINO=300` | ~9 s |
+| `atualizar.py --backfill 30` treinando com a série toda | ~3 min 40 s |
 | Execuções seguintes no mesmo processo | segundos (modelo em cache) |
-| `pytest -q` (inclui treino em séries curtas) | ~1 min 40 s |
+| `pytest -q` (inclui treino em séries curtas) | ~30 s |
 
 Quase todo o tempo é o treino do SVR, que percorre todas as origens da série.
 Na prática, o primeiro clique em "Atualizar" no dashboard treina o modelo e só
