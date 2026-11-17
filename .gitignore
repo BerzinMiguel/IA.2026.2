@@ -3,6 +3,8 @@ venv/
 __pycache__/
 *.pyc
 .pytest_cache/
-# Planilhas, banco local e artefatos de modelo não vão para o Git
-dados/
 resultados/
+# Banco local, planilhas brutas e testes; as séries tratadas são versionadas
+dados/*
+!dados/*_tratado.xlsx
+!dados/volatilidade.xlsx
