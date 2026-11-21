@@ -68,7 +68,8 @@ class TestIntegracao(unittest.TestCase):
         outro = self.pipeline()
         outro.treinar(*alteradas)
         for h in (1, 2):
-            x = pd.DataFrame([[5., 31., .5]], columns=["dolar", "bolsa", "volatilidade"])
+            self.assertEqual(pipe.modelos[h].entradas, ("dolar", "volatilidade"))
+            x = pd.DataFrame([[5., .5]], columns=["dolar", "volatilidade"])
             np.testing.assert_array_equal(pipe.modelos[h].predict(x), outro.modelos[h].predict(x))
 
     def test_paridade_com_modelo_ryan(self):

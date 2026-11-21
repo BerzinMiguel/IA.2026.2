@@ -71,17 +71,10 @@ class PreparadorBases:
         coluna_data: str = "Data",
     ) -> tuple[Path, Path, Path]:
         """Salva X (inicial), Y (intermediária) e Z (final), sem aleatoriedade."""
-        partes_pct = (porcentagem_x, porcentagem_y, porcentagem_z)
-        if any(p < 0 for p in partes_pct) or abs(sum(partes_pct) - 100) >= 1e-9:
-            raise ValueError("As porcentagens devem ser não negativas e somar 100.")
-
         origem = Path(planilha)
-        dados = self._validar_data(self._ler_planilha(origem), coluna_data)
-        total = len(dados)
-        corte_x = int(total * porcentagem_x / 100)
-        corte_y = int(total * (porcentagem_x + porcentagem_y) / 100)
-        fatias = (dados.iloc[:corte_x], dados.iloc[corte_x:corte_y], dados.iloc[corte_y:])
-
+        fatias = self.dividir_dados(
+            self._ler_planilha(origem), (porcentagem_x, porcentagem_y, porcentagem_z), coluna_data
+        )
         self.pasta_saida.mkdir(parents=True, exist_ok=True)
         caminhos = tuple(
             self.pasta_saida / f"{origem.stem}_{nome}.xlsx" for nome in ("X", "Y", "Z")
@@ -89,6 +82,26 @@ class PreparadorBases:
         for fatia, caminho in zip(fatias, caminhos):
             fatia.to_excel(caminho, index=False)
         return caminhos
+
+    @classmethod
+    def dividir_dados(cls, dados, partes_pct, coluna_data="Data"):
+        dados = cls._validar_data(dados, coluna_data)
+        porcentagem_x, porcentagem_y, _ = partes_pct
+        if any(p < 0 for p in partes_pct) or abs(sum(partes_pct) - 100) >= 1e-9:
+            raise ValueError("As porcentagens devem ser não negativas e somar 100.")
+
+        total = len(dados)
+        corte_x = int(total * porcentagem_x / 100)
+        corte_y = int(total * (porcentagem_x + porcentagem_y) / 100)
+        return dados.iloc[:corte_x], dados.iloc[corte_x:corte_y], dados.iloc[corte_y:]
+
+    @staticmethod
+    def limites_min_max(valores):
+        return valores.min(), valores.max()
+
+    @staticmethod
+    def normalizar_valores(valores, minimo, maximo):
+        return (valores - minimo) / (maximo - minimo)
 
     @staticmethod
     def _nome_coluna(dados: pd.DataFrame, indice_coluna: int) -> str:
@@ -118,7 +131,7 @@ class PreparadorBases:
         validos = valores.dropna()
         if validos.empty:
             raise ValueError(f"A coluna '{coluna}' não contém valores numéricos válidos.")
-        minimo, maximo = float(validos.min()), float(validos.max())
+        minimo, maximo = map(float, self.limites_min_max(validos))
         if minimo == maximo:
             raise ValueError(
                 f"A coluna '{coluna}' é constante no treino; x_max - x_min é zero."
@@ -152,7 +165,7 @@ class PreparadorBases:
         if maximo == minimo:
             raise ValueError("Os parâmetros informados têm intervalo zero.")
         valores = pd.to_numeric(dados[coluna], errors="coerce")
-        dados[parametros["nome_coluna_saida"]] = (valores - minimo) / (maximo - minimo)
+        dados[parametros["nome_coluna_saida"]] = self.normalizar_valores(valores, minimo, maximo)
 
         if destino is None:
             destino = self.pasta_saida / f"{origem.stem}_minmax.xlsx"

@@ -4,11 +4,28 @@ import json
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.base import clone
-from sklearn.metrics import mean_absolute_error, mean_squared_error
 from ia.multistep import Multistep
 from ia.bases import PreparadorBases
-from .modelo import COLUNAS, ModeloSVR, recomendar
+from .modelo import avaliar_svr, dividir_base_svr, prever_ativo, recomendar, treinar_svr
+
+COLUNAS = ("dolar", "bolsa", "volatilidade")
+
+
+def prever_indicadores_multistep(historico, dimensao, horizonte):
+    """Gera os indicadores na escala original para cada horizonte."""
+    return pd.DataFrame({
+        coluna: Multistep.prever_serie(historico[coluna], historico[coluna], dimensao, horizonte)
+        for coluna in COLUNAS
+    })
+
+
+def prever_com_multistep_e_svr(historico, dimensao, horizonte, modelos):
+    indicadores = prever_indicadores_multistep(historico, dimensao, horizonte)
+    fechamentos = [
+        prever_ativo(modelos[h], linha.dolar, linha.volatilidade)
+        for h, linha in enumerate(indicadores.itertuples(index=False), 1)
+    ]
+    return indicadores, fechamentos
 
 
 def carregar_bases(dolar, bolsa, volatilidade):
@@ -47,32 +64,34 @@ def carregar_bases(dolar, bolsa, volatilidade):
 
 
 class PipelineIntegrado:
-    def __init__(self, dimensao=12, horizonte=2, minimo_treino=60, fracao_teste=0.2, limiar=0.02):
+    def __init__(self, dimensao=12, horizonte=2, minimo_treino=60, fracao_teste=0.2, limiar=0.02,
+                 fracao_validacao=0.2, parametros_svr=None):
         for nome, valor in (("dimensao", dimensao), ("horizonte", horizonte), ("minimo_treino", minimo_treino)):
             if isinstance(valor, bool) or not isinstance(valor, int) or valor < 1:
                 raise ValueError(f"{nome} deve ser inteiro positivo.")
         if minimo_treino < dimensao + horizonte:
             raise ValueError("minimo_treino deve ser >= dimensao + horizonte.")
-        if not 0 < fracao_teste < 1 or not np.isfinite(limiar) or limiar < 0:
+        fracoes_validas = (0 < fracao_teste and 0 < fracao_validacao
+                           and fracao_teste + fracao_validacao < 1)
+        if not fracoes_validas or not np.isfinite(limiar) or limiar < 0:
             raise ValueError("Fração de teste ou limiar inválido.")
         self.dimensao, self.horizonte = dimensao, horizonte
         self.minimo_treino, self.fracao_teste, self.limiar = minimo_treino, fracao_teste, limiar
+        self.fracao_validacao = fracao_validacao
+        self.parametros_svr = parametros_svr
         self.modelos = {}
-
-    def _prever_multistep(self, historico):
-        return np.column_stack([Multistep.prever_serie(
-            historico[col].to_numpy(), historico[col].to_numpy(),
-            self.dimensao, self.horizonte) for col in COLUNAS])
 
     def gerar_historico(self, dados):
         """Janela expansiva: cada origem usa só linhas <= origem, inclusive escala."""
         linhas = []
         for origem in range(self.minimo_treino - 1, len(dados) - self.horizonte):
-            previsoes = self._prever_multistep(dados.iloc[:origem + 1])
+            previsoes = prever_indicadores_multistep(
+                dados.iloc[:origem + 1], self.dimensao, self.horizonte
+            )
             for h in range(1, self.horizonte + 1):
                 linhas.append({"origem": dados.iloc[origem]["Data"],
                                "data_alvo": dados.iloc[origem + h]["Data"], "horizonte": h,
-                               **dict(zip(COLUNAS, previsoes[h - 1])),
+                               **previsoes.iloc[h - 1].to_dict(),
                                "alvo": float(dados.iloc[origem + h]["bolsa"])})
         if not linhas:
             raise ValueError("Dados insuficientes para gerar previsões fora da amostra.")
@@ -81,28 +100,27 @@ class PipelineIntegrado:
     def treinar(self, dolar, bolsa, volatilidade, pasta_saida=None):
         dados, avisos = carregar_bases(dolar, bolsa, volatilidade)
         historico = self.gerar_historico(dados)
-        origens = historico["origem"].drop_duplicates().sort_values().tolist()
-        corte = int(len(origens) * (1 - self.fracao_teste))
-        if corte < 1 or corte >= len(origens):
-            raise ValueError("Origens insuficientes para separar treino e teste.")
-        inicio_teste = origens[corte]
+        proporcoes = (
+            100 * (1 - self.fracao_teste - self.fracao_validacao),
+            100 * self.fracao_validacao,
+            100 * self.fracao_teste,
+        )
         modelos, metricas, avaliacoes = {}, {}, []
         for h in range(1, self.horizonte + 1):
             base = historico[historico.horizonte == h]
-            # Alvos no limite também são excluídos para separação estrita.
-            treino = base[(base.origem < inicio_teste) & (base.data_alvo < inicio_teste)]
-            teste = base[base.origem >= inicio_teste]
+            treino, validacao, teste = dividir_base_svr(base, proporcoes)
             if len(treino) < 10 or len(teste) < 2:
                 raise ValueError(f"Horizonte {h}: exigidos >=10 treinos e >=2 testes após expurgo temporal.")
-            modelo = clone(ModeloSVR().pipeline)
-            modelo.fit(treino[COLUNAS], treino.alvo)
-            previsto = modelo.predict(teste[COLUNAS])
-            metricas[str(h)] = {"amostras_treino": len(treino), "amostras_teste": len(teste),
-                "MAE": float(mean_absolute_error(teste.alvo, previsto)),
-                "RMSE": float(np.sqrt(mean_squared_error(teste.alvo, previsto))),
-                "MAPE_pct": float(np.mean(np.abs((teste.alvo.to_numpy() - previsto) / teste.alvo.to_numpy())) * 100),
+            modelo = treinar_svr(treino, validacao, self.parametros_svr)
+            previsto, erros = avaliar_svr(modelo, teste)
+            inicio_teste = teste.origem.min()
+            metricas[str(h)] = {
+                **erros, "amostras_treino": len(treino), "amostras_validacao": len(validacao),
+                "amostras_teste": len(teste), "MSE_validacao": modelo.mse_validacao,
+                "parametros": {nome: modelo.estimador.get_params()[nome] for nome in ("C", "gamma", "epsilon")},
                 "ultimo_alvo_treino": treino.data_alvo.max().date().isoformat(),
-                "primeira_origem_teste": inicio_teste.date().isoformat()}
+                "primeira_origem_teste": inicio_teste.date().isoformat(),
+            }
             avaliacao = teste[["origem", "data_alvo", "horizonte", "alvo"]].rename(columns={"alvo": "real"}).copy()
             avaliacao["previsto"] = previsto
             avaliacao["erro"] = avaliacao.real - previsto
@@ -137,12 +155,14 @@ class PipelineIntegrado:
                 or (datas != datas.normalize()).any() or (datas <= origem.Data).any()):
                 raise ValueError("Forneça uma data diária futura crescente e única por horizonte.")
             datas = [data.date().isoformat() for data in datas]
-        previsoes = self._prever_multistep(self.dados)
-        if (previsoes < 0).any():
+        previsoes, fechamentos = prever_com_multistep_e_svr(
+            self.dados, self.dimensao, self.horizonte, self.modelos
+        )
+        if (previsoes.to_numpy() < 0).any():
             avisos.append("MQO retornou indicador negativo; valor preservado, sem truncamento.")
         resultados = []
-        for h, valores in enumerate(previsoes, 1):
-            previsto = float(self.modelos[h].predict(pd.DataFrame([valores], columns=COLUNAS))[0])
+        for h, previsto in enumerate(fechamentos, 1):
+            valores = previsoes.iloc[h - 1]
             if not np.isfinite(previsto):
                 raise ValueError("SVR produziu previsão não finita.")
             if previsto <= 0:
@@ -161,12 +181,12 @@ class PipelineIntegrado:
             raise RuntimeError("Não há pipeline treinado.")
         caminho = Path(caminho)
         caminho.parent.mkdir(parents=True, exist_ok=True)
-        joblib.dump({"versao": 1, "pipeline": self}, caminho)
+        joblib.dump({"versao": 2, "pipeline": self}, caminho)
 
     @classmethod
     def carregar(cls, caminho):
         """Somente artefatos confiáveis: joblib pode executar código."""
         artefato = joblib.load(caminho)
-        if not isinstance(artefato, dict) or artefato.get("versao") != 1 or not isinstance(artefato.get("pipeline"), cls):
-            raise ValueError("Artefato incompatível; use pipeline.joblib da integração.")
+        if not isinstance(artefato, dict) or artefato.get("versao") != 2 or not isinstance(artefato.get("pipeline"), cls):
+            raise ValueError("Artefato incompatível. Treine novamente para gerar o pipeline.joblib de duas entradas.")
         return artefato["pipeline"]
