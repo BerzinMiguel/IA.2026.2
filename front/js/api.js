@@ -115,9 +115,24 @@ async function buscarMetricas() {
    { "status": "ok" | "ja_existia", "data_atualizacao": "2026-11-13",
      "recomendacao": "manter", "execucao_id": 61 }
    --------------------------------------------------------- */
-async function solicitarAtualizacao() {
+/* POST /api/decisao
+   Cruza a posição informada com a última previsão gravada.
+   Corpo vazio = usuário sem posição. Nada é gravado no banco. */
+async function analisarPosicao(posicao = {}) {
+  return requisitar("/decisao", {
+    method: "POST",
+    body: JSON.stringify(posicao),
+  });
+}
+
+/* `baixar: true` manda o backend buscar pregões novos nas fontes antes de
+   rodar a IA. Sem isso ele só reprocessa o que já está no banco. */
+async function solicitarAtualizacao(baixar = true) {
   if (USAR_MOCK) return { status: "ok", data_atualizacao: hojeISO() };
-  return requisitar("/atualizar", { method: "POST" });
+  return requisitar("/atualizar", {
+    method: "POST",
+    body: JSON.stringify({ baixar }),
+  });
 }
 
 

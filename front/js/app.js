@@ -170,16 +170,38 @@ async function carregarDesempenho() {
   desenharGraficoBarras("grafico-erro", avaliacao.map(a => ({ x: a.data_alvo, y: a.erro })));
 }
 
-/* ===== Atualização diária ===== */
+/* ===== Atualização diária =====
+   O backend só recalcula quando existe pregão novo: para uma data que já tem
+   execução gravada ele devolve "ja_existia" em instantes. Sem dizer isso na
+   tela, o botão parece quebrado quando na verdade não há o que processar. */
+function mostrarStatus(texto, erro = false) {
+  const alvo = document.getElementById("status-atualizacao");
+  alvo.textContent = texto;
+  alvo.classList.toggle("erro", erro);
+  alvo.classList.toggle("oculto", !texto);
+}
+
 async function atualizarTudo() {
   const botao = document.getElementById("btn-atualizar");
   botao.disabled = true;
   botao.textContent = "Atualizando...";
+  mostrarStatus("Buscando cotações novas e rodando o pipeline; leva alguns minutos.");
   try {
-    await solicitarAtualizacao();
+    const resposta = await solicitarAtualizacao();
     await carregarTudo();
+    const data = formatarData(resposta.data_atualizacao);
+    const s = resposta.sincronizacao;
+    const baixadas = !s
+      ? ""
+      : s.pregoes_novos
+        ? `${s.pregoes_novos} pregão(ões) novo(s) baixado(s), até ${formatarData(s.ultima_data)}. `
+        : `Nenhum pregão novo nas fontes (base já ia até ${formatarData(s.ultima_data)}). `;
+    mostrarStatus(baixadas + (resposta.status === "ja_existia"
+      ? `A previsão de ${data} já existia, nada a recalcular.`
+      : `Previsão de ${data} gerada: ${(resposta.recomendacao || "").toUpperCase()}.`));
   } catch (erro) {
     mostrarErro(erro);
+    mostrarStatus("Falha ao atualizar: " + erro.message, true);
   } finally {
     botao.disabled = false;
     botao.textContent = "Atualizar";
@@ -195,6 +217,104 @@ function mostrarErro(erro) {
   document.getElementById("aviso").textContent = "Não foi possível carregar os dados: " + erro.message;
 }
 
+/* ===== TELA 1: MINHA POSIÇÃO =====
+   A previsão é do mercado e igual para todos; só o enquadramento muda.
+   Por isso nada aqui é gravado: o backend calcula e devolve na hora. */
+const SINAIS = {
+  alta:      { texto: "sinal de alta",  classe: "sinal-alta" },
+  baixa:     { texto: "sinal de baixa", classe: "sinal-baixa" },
+  sem_sinal: { texto: "sem sinal",      classe: "sinal-neutro" },
+};
+
+function linhaPosicao(rotulo, valor, destaque = false) {
+  return `<div class="${destaque ? "item destaque" : "item"}">
+            <span class="rotulo">${rotulo}</span><strong>${valor}</strong>
+          </div>`;
+}
+
+function exibirPosicao(d) {
+  const caixa = document.getElementById("resultado-posicao");
+  caixa.classList.remove("oculto");
+
+  const card = document.getElementById("card-posicao");
+  card.classList.remove("aplicar", "aplicar-mais", "manter", "retirar");
+  card.classList.add(d.recomendacao.toLowerCase().replace(/\s+/g, "-"));
+
+  document.getElementById("posicao-recomendacao").textContent = d.recomendacao;
+
+  const sinal = SINAIS[d.sinal] || SINAIS.sem_sinal;
+  const selo = document.getElementById("posicao-sinal");
+  selo.textContent = sinal.texto;
+  selo.className = "selo-sinal " + sinal.classe;
+
+  // O "porquê" em uma frase: é o que separa um conselho de um número solto.
+  let explicacao;
+  if (d.sinal === "sem_sinal" && d.erro_modelo_pct != null) {
+    explicacao = `O modelo prevê ${formatarPercentual(d.variacao_prevista_pct)} e erra em média `
+      + `${formatarNumero(d.erro_modelo_pct, 2)} %. O movimento previsto é menor que o erro, `
+      + `então ele não distingue alta de baixa até ${formatarData(d.data_alvo)}.`;
+  } else if (d.motivo_retirada) {
+    explicacao = `Queda prevista acima do limiar de ${formatarNumero(d.limiar_pct, 1)} %: `
+      + `retirar aqui é ${d.motivo_retirada}.`;
+  } else if (d.sinal === "baixa") {
+    explicacao = `Queda prevista, mas sem posição não há o que retirar: aguarde antes de aplicar.`;
+  } else {
+    explicacao = `Alta prevista acima do limiar de ${formatarNumero(d.limiar_pct, 1)} % `
+      + `para ${formatarData(d.data_alvo)}.`;
+  }
+  document.getElementById("posicao-explicacao").textContent = explicacao;
+
+  const faixa = d.faixa_preco
+    ? `${formatarMoeda(d.faixa_preco[0])} a ${formatarMoeda(d.faixa_preco[1])}`
+    : "--";
+  let html = linhaPosicao("Preço hoje", formatarMoeda(d.preco_atual))
+           + linhaPosicao("Previsto", formatarMoeda(d.preco_previsto))
+           + linhaPosicao("Faixa típica de erro", faixa);
+
+  if (d.posicao) {
+    const p = d.posicao;
+    html += linhaPosicao("Investido", formatarMoeda(p.valor_investido))
+          + linhaPosicao("Valor hoje", `${formatarMoeda(p.valor_atual)} (${formatarPercentual(p.resultado_atual_pct)})`)
+          + linhaPosicao("Valor previsto", `${formatarMoeda(p.valor_previsto)} (${formatarPercentual(p.resultado_previsto_pct)})`, true);
+    if (p.faixa_valor) {
+      html += linhaPosicao("Sua posição na faixa",
+        `${formatarMoeda(p.faixa_valor[0])} a ${formatarMoeda(p.faixa_valor[1])}`);
+    }
+  }
+  document.getElementById("grade-posicao").innerHTML = html;
+  document.getElementById("posicao-avisos").textContent = (d.avisos || []).join(" ");
+}
+
+function lerPosicaoDoFormulario() {
+  const qtd = parseFloat(document.getElementById("campo-quantidade").value);
+  const entrada = parseFloat(document.getElementById("campo-entrada").value);
+  const corpo = {};
+  if (Number.isFinite(qtd) && qtd > 0) corpo.quantidade = qtd;
+  if (Number.isFinite(entrada) && entrada > 0) corpo.cotacao_entrada = entrada;
+  return corpo;
+}
+
+async function enviarPosicao(evento) {
+  if (evento) evento.preventDefault();
+  const corpo = lerPosicaoDoFormulario();
+  if (corpo.quantidade && !corpo.cotacao_entrada) {
+    document.getElementById("posicao-avisos").textContent =
+      "Informe a cotação de compra para calcular o resultado da posição.";
+    return;
+  }
+  try {
+    exibirPosicao(await analisarPosicao(corpo));
+  } catch (erro) {
+    document.getElementById("posicao-avisos").textContent = erro.message;
+  }
+}
+
+function limparPosicao() {
+  document.getElementById("campo-quantidade").value = "";
+  document.getElementById("campo-entrada").value = "";
+  enviarPosicao();
+}
+
 /* ===== Inicialização ===== */
 function iniciar() {
   document.querySelectorAll(".aba").forEach(aba =>
@@ -204,6 +324,8 @@ function iniciar() {
   document.getElementById("btn-tema").addEventListener("click", alternarTema);
   document.getElementById("filtro-indicador").addEventListener("change", atualizarGraficoHistorico);
   document.getElementById("filtro-periodo").addEventListener("change", atualizarGraficoHistorico);
+  document.getElementById("form-posicao").addEventListener("submit", enviarPosicao);
+  document.getElementById("btn-limpar-posicao").addEventListener("click", limparPosicao);
 
   carregarTudo().catch(mostrarErro);
 }
