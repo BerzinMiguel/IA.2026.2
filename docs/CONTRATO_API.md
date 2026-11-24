@@ -44,6 +44,77 @@ saída do **SVR**; por isso os dois valores da bolsa são diferentes.
 
 `404` enquanto nenhuma previsão foi gerada: rode `POST /api/atualizar`.
 
+## POST /api/decisao
+
+Tela 1. Cruza a posição informada pelo usuário com a última previsão gravada.
+**Nada é gravado**: a previsão é do mercado e igual para todos; só o
+enquadramento muda por usuário.
+
+Corpo (todos opcionais). Sem posição informada, avalia como quem não investiu:
+
+```json
+{ "quantidade": 100, "cotacao_entrada": 38.50 }
+```
+
+`valor_investido` pode substituir `quantidade`, desde que venha com
+`cotacao_entrada`.
+
+```json
+{
+  "tem_posicao": true,
+  "sinal": "sem_sinal",
+  "recomendacao": "MANTER",
+  "data_alvo": "2026-11-18",
+  "preco_atual": 44.02,
+  "preco_previsto": 44.1634,
+  "variacao_prevista_pct": 0.326,
+  "limiar_pct": 2.0,
+  "erro_modelo": 0.7604,
+  "erro_modelo_pct": 1.727,
+  "faixa_preco": [43.403, 44.9238],
+  "posicao": {
+    "quantidade": 100.0,
+    "cotacao_entrada": 38.5,
+    "valor_investido": 3850.0,
+    "valor_atual": 4402.0,
+    "resultado_atual": 552.0,
+    "resultado_atual_pct": 14.338,
+    "valor_previsto": 4416.34,
+    "resultado_previsto": 566.34,
+    "resultado_previsto_pct": 14.71,
+    "ganho_previsto_periodo": 14.34,
+    "faixa_valor": [4340.3, 4492.38]
+  },
+  "avisos": ["..."],
+  "versao_modelo": "multistep+svr-d12-h2-t2024-03-01",
+  "data_atualizacao": "2026-11-16",
+  "aviso": "Protótipo acadêmico. Não constitui recomendação de investimento."
+}
+```
+
+`recomendacao` é uma de `APLICAR | APLICAR MAIS | MANTER | RETIRAR`, do
+cruzamento entre `sinal` e `tem_posicao`:
+
+| | alta | sem_sinal | baixa |
+|---|---|---|---|
+| **sem posição** | APLICAR | MANTER | MANTER |
+| **com posição** | APLICAR MAIS | MANTER | RETIRAR |
+
+Nunca sai `RETIRAR` para quem não tem posição.
+
+`sinal` viaja separado porque `MANTER` aparece por dois motivos diferentes: o
+modelo prever queda para quem não tem posição, ou o modelo não ter sinal
+nenhum. `sem_sinal` significa que a variação prevista não supera o erro típico
+do modelo (`erro_modelo_pct`), ou seja, está dentro do ruído.
+
+`posicao` é `null` para quem não tem posição. Quando a recomendação é
+`RETIRAR`, vem também `motivo_retirada`: `"realizar lucro"` ou
+`"limitar prejuízo"`.
+
+`400` com `{"erro": "..."}` para entrada inválida (quantidade negativa,
+`quantidade` sem `cotacao_entrada`, valores não finitos). `404` enquanto
+nenhuma previsão foi gerada.
+
 ## GET /api/historico?indicador=bolsa&dias=30
 
 Tela 2. Série observada, em ordem crescente. `indicador` ∈ `dolar | bolsa |
@@ -129,6 +200,32 @@ Roda o pipeline do dia. Corpo opcional:
 
 `status` é `ok` ou `ja_existia` (a data já tinha execução e `sobrescrever` não
 foi pedido). Saída da IA fora do contrato → `502` dizendo qual campo falhou.
+
+### Corpo (todos opcionais)
+
+| campo | efeito |
+|---|---|
+| `baixar` | busca pregões novos nas fontes (PTAX do Banco Central e fechamento da ação no Yahoo) **antes** de rodar a IA, e regrava as planilhas de `dados/`. É o que o botão Atualizar do front envia. |
+| `sobrescrever` | recalcula mesmo que já exista execução para a data. |
+| `data_referencia` | roda para uma data específica em vez do último pregão. |
+
+Com `baixar`, a resposta traz também:
+
+```json
+"sincronizacao": {
+  "ultima_data_antes": "2026-11-16",
+  "ultima_data": "2026-11-23",
+  "pregoes_novos": 4,
+  "datas_novas": ["2026-11-17", "2026-11-18", "2026-11-19", "2026-11-23"],
+  "ticker": "PETR4.SA"
+}
+```
+
+`pregoes_novos: 0` significa que as fontes não tinham nada além do que já
+estava no banco. Sem `baixar`, o campo não aparece.
+
+A chamada com `baixar` leva alguns minutos: baixa as três séries e treina o
+SVR para cada horizonte. `502` se as fontes externas não responderem.
 
 ## GET /api/health
 

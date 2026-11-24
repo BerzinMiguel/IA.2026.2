@@ -12,7 +12,10 @@ import json
 
 from flask import Blueprint, current_app, jsonify, request
 
+from ia.decisao import avaliar_posicao
+
 from ..db import INDICADORES, get_db
+from ..services import cotacoes as servico_cotacoes
 from ..services import metricas, pipeline
 from ..services.ia import ContratoInvalido, obter_funcao_ia
 
@@ -122,6 +125,57 @@ def previsao_atual():
     })
 
 
+@bp.post("/decisao")
+def decisao():
+    """Tela 1: cruza a posição informada pelo usuário com a última previsão.
+
+    Corpo (todos opcionais; sem posição informada, trata como quem não tem):
+
+        {"quantidade": 100, "cotacao_entrada": 38.50}
+        {"valor_investido": 3850.0, "cotacao_entrada": 38.50}
+
+    Nada é gravado: a previsão é do mercado e é a mesma para todos; só o
+    enquadramento muda por usuário.
+    """
+    db = get_db()
+    e = _ultima_execucao(db)
+    if e is None:
+        return jsonify(erro="nenhuma previsão gerada ainda; chame POST /api/atualizar"), 404
+    if e["previsao_final"] is None:
+        return jsonify(erro="a última execução não tem fechamento previsto"), 404
+
+    corpo = request.get_json(silent=True) or {}
+    if not isinstance(corpo, dict):
+        return jsonify(erro="corpo deve ser um objeto JSON"), 400
+
+    entradas = _entradas(e)
+    preco_atual = entradas.get("bolsa_atual") or _bolsa_em(db, e["data_referencia"])
+    if not preco_atual:
+        return jsonify(erro="sem fechamento da bolsa na data de referência"), 404
+
+    # O limiar e o MAE saem da própria execução: a banda de indiferença tem de
+    # acompanhar o erro do modelo que gerou aquela previsão.
+    modelo = entradas.get("metricas_modelo") or {}
+    try:
+        resultado = avaliar_posicao(
+            preco_atual=preco_atual,
+            preco_previsto=e["previsao_final"],
+            limiar_pct=entradas.get("limiar_pct", 2.0),
+            quantidade=corpo.get("quantidade"),
+            cotacao_entrada=corpo.get("cotacao_entrada"),
+            valor_investido=corpo.get("valor_investido"),
+            erro_modelo=modelo.get("MAE"),
+            data_alvo=e["data_alvo_final"],
+        )
+    except ValueError as erro:
+        return jsonify(erro=str(erro)), 400
+
+    resultado["versao_modelo"] = e["versao_modelo"]
+    resultado["data_atualizacao"] = e["data_referencia"]
+    resultado["aviso"] = AVISO
+    return jsonify(resultado)
+
+
 @bp.get("/historico")
 def historico():
     """Tela 2: série observada do indicador: [{data, valor}] em ordem crescente.
@@ -212,9 +266,23 @@ def metricas_modelo():
 
 @bp.post("/atualizar")
 def atualizar():
-    """Rodada diária: dados -> IA -> histórico. Chamada pelo botão e pelo cron."""
+    """Rodada diária: dados -> IA -> histórico. Chamada pelo botão e pelo cron.
+
+    Com `baixar: true` busca antes os pregões novos nas fontes (PTAX do Banco
+    Central e fechamento da ação no Yahoo) e regrava as planilhas de `dados/`.
+    Sem isso, apenas reprocessa o que já está no banco — e para uma data que já
+    tem execução devolve `ja_existia` sem recalcular nada.
+    """
     cfg = current_app.config
     corpo = request.get_json(silent=True) or {}
+    sincronizacao = None
+    if corpo.get("baixar"):
+        try:
+            sincronizacao = servico_cotacoes.sincronizar(get_db())
+        except servico_cotacoes.FalhaAoSincronizar as e:
+            return jsonify(erro=str(e)), 502
+        except (ValueError, OSError) as e:
+            return jsonify(erro=f"falha ao sincronizar cotações: {e}"), 502
     try:
         fn = obter_funcao_ia(cfg["IA_MODE"], cfg["IA_MODULE"], cfg["HORIZONTE"])
         res = pipeline.executar(get_db(), fn, corpo.get("data_referencia"),
@@ -225,7 +293,10 @@ def atualizar():
         return jsonify(erro=str(e)), 409
     except (ValueError, ImportError, OSError) as e:
         return jsonify(erro=f"falha ao executar a IA: {e}"), 502
-    return jsonify({**res, "data_atualizacao": res["data_referencia"]})
+    resposta = {**res, "data_atualizacao": res["data_referencia"]}
+    if sincronizacao is not None:
+        resposta["sincronizacao"] = sincronizacao
+    return jsonify(resposta)
 
 
 # =====================================================================

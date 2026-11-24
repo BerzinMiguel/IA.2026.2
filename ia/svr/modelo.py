@@ -18,6 +18,12 @@ GRADE_RBF = {
     "epsilon": 10.0 ** np.arange(-4, -1),
 }
 
+# O SVR aprende a variação em relação ao preço de origem, não o nível do preço.
+# Sobre nível, treino e teste caem em faixas que quase não se cruzam e a busca
+# por menor MSE converge para um preditor constante (ver docs/RELATORIO_ALVO_RETORNO.md).
+ALVO_RETORNO = "alvo_retorno"
+PRECO_ORIGEM = "preco_origem"
+
 
 @dataclass
 class SVRTreinado:
@@ -83,25 +89,60 @@ def treinar_svr(treino, validacao, parametros=None, entradas=ENTRADAS_SVR, alvo=
     return SVRTreinado(melhor, tuple(colunas), minimo, maximo, menor_mse)
 
 
-def prever_ativo(modelo, dolar_previsto, volatilidade_prevista):
-    """Retorna o fechamento em reais a partir dos dois valores previstos."""
+def retorno_para_preco(preco_origem, retorno):
+    """Volta do alvo de retorno para reais: preco_origem * (1 + retorno)."""
+    return np.asarray(preco_origem, dtype=float) * (1.0 + np.asarray(retorno, dtype=float))
+
+
+def prever_retorno(modelo, dolar_previsto, volatilidade_prevista):
+    """Variação prevista para o horizonte do modelo, em fração do preço de origem."""
     dados = pd.DataFrame({"dolar": [dolar_previsto], "volatilidade": [volatilidade_prevista]})
     return float(modelo.predict(dados)[0])
 
 
-def avaliar_svr(modelo, teste, alvo="alvo"):
-    real = teste[alvo].to_numpy(dtype=float)
-    previsto = modelo.predict(teste)
+def prever_preco(modelo, preco_atual, dolar_previsto, volatilidade_prevista):
+    """Fechamento em reais a partir da variação prevista e do preço de origem."""
+    preco_atual = float(preco_atual)
+    if not np.isfinite(preco_atual) or preco_atual <= 0:
+        raise ValueError("O preço de origem deve ser finito e positivo.")
+    retorno = prever_retorno(modelo, dolar_previsto, volatilidade_prevista)
+    return float(retorno_para_preco(preco_atual, retorno))
+
+
+def _erros(real, previsto):
+    real = np.asarray(real, dtype=float)
+    previsto = np.asarray(previsto, dtype=float)
     mse = float(mean_squared_error(real, previsto))
     nao_zero = real != 0
     mape = (float(np.mean(np.abs((real[nao_zero] - previsto[nao_zero]) / real[nao_zero])) * 100)
             if nao_zero.any() else None)
-    return previsto, {
+    return {
         "MSE": mse,
         "MAE": float(mean_absolute_error(real, previsto)),
         "RMSE": float(np.sqrt(mse)),
         "MAPE_pct": mape,
     }
+
+
+def avaliar_svr(modelo, teste, alvo="alvo", base_preco=None):
+    """Avalia em reais. Com `base_preco`, a saída do modelo é lida como retorno.
+
+    O SVR treina sobre variação, mas as métricas ficam na unidade do preço para
+    poderem ser comparadas com a baseline de persistência e entre versões.
+    """
+    previsto = modelo.predict(teste)
+    if base_preco is not None:
+        previsto = retorno_para_preco(teste[base_preco].to_numpy(dtype=float), previsto)
+    return previsto, _erros(teste[alvo].to_numpy(dtype=float), previsto)
+
+
+def baseline_persistencia(teste, alvo="alvo", base_preco=PRECO_ORIGEM):
+    """Referência trivial: o preço no horizonte é o preço da origem.
+
+    É o critério de aceite do modelo. Um SVR que não bate estes números não
+    justifica existir, por melhor que seja o MSE dele contra si mesmo.
+    """
+    return _erros(teste[alvo].to_numpy(dtype=float), teste[base_preco].to_numpy(dtype=float))
 
 def recomendar(preco_atual: float, preco_previsto: float, limiar: float = 0.02) -> dict:
     """Classificação ilustrativa; não constitui aconselhamento financeiro."""
@@ -133,17 +174,20 @@ class ModeloSVR:
             df[col] = pd.to_numeric(df[col], errors='coerce')
         df = df.dropna(subset=obrigatorias).sort_values('Data').drop_duplicates('Data', keep='last')
         df = df[((df[['dolar', 'bolsa']] > 0).all(axis=1) & (df['volatilidade'] >= 0))].copy()
+        df[PRECO_ORIGEM] = df['bolsa']
         df['alvo'] = df['bolsa'].shift(-1)
         df['data_alvo'] = df['Data'].shift(-1)
         df = df.dropna(subset=['alvo'])
+        df[ALVO_RETORNO] = df['alvo'] / df[PRECO_ORIGEM] - 1.0
         if len(df) < 40:
             raise ValueError('São necessários pelo menos 41 dias de dados alinhados e válidos.')
         treino, validacao, teste = dividir_base_svr(df.rename(columns={"Data": "origem"}))
-        self.pipeline = treinar_svr(treino, validacao)
-        previsto, metricas = avaliar_svr(self.pipeline, teste)
+        self.pipeline = treinar_svr(treino, validacao, alvo=ALVO_RETORNO)
+        previsto, metricas = avaliar_svr(self.pipeline, teste, base_preco=PRECO_ORIGEM)
         real = teste["alvo"].to_numpy()
         metricas.update(amostras_treino=len(treino), amostras_teste=len(teste),
-                        observacao="Avaliação cronológica do modelo independente.")
+                        baseline_persistencia=baseline_persistencia(teste),
+                        observacao="Métricas em reais; o SVR treina sobre variação.")
         saida = Path(pasta_saida)
         saida.mkdir(parents=True, exist_ok=True)
         pd.DataFrame({'data_alvo': teste['data_alvo'].dt.strftime('%Y-%m-%d'),
@@ -156,7 +200,7 @@ class ModeloSVR:
     def prever(self, dolar: float, bolsa: float, volatilidade: float) -> dict:
         if not self.treinado:
             raise RuntimeError('Treine ou carregue o modelo antes de prever.')
-        previsao = prever_ativo(self.pipeline, dolar, volatilidade)
+        previsao = prever_preco(self.pipeline, bolsa, dolar, volatilidade)
         return {'fechamento_previsto': round(previsao, 4),
                 **recomendar(bolsa, previsao)}
 

@@ -1,7 +1,7 @@
 # IA 2026.2 — Previsão de fechamento e recomendação de investimento
 
 Protótipo acadêmico que, a cada pregão, prevê **dólar**, **bolsa** (ação) e
-**volatilidade** com três modelos multistep, consolida as três previsões num
+**volatilidade** com três modelos multistep, consolida dólar e volatilidade previstos num
 **SVR** que estima o fechamento futuro da ação, e transforma isso em uma
 recomendação: **aplicar**, **manter** ou **retirar**. Tudo fica gravado para
 comparar previsão com o que realmente aconteceu.

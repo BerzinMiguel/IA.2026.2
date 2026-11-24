@@ -43,6 +43,7 @@
       </button>
       <button class="botao" id="btn-atualizar">Atualizar</button>
     </div>
+    <p class="status-atualizacao oculto" id="status-atualizacao"></p>
   </header>
 
   <main class="conteudo">
@@ -76,6 +77,36 @@
           </div>
         </div>
         <p class="aviso" id="aviso">Demonstração acadêmica; não usar para decisões financeiras reais.</p>
+      </article>
+
+      <!-- Minha posição: cruza o que o usuário investiu com a previsão -->
+      <article class="card card-posicao" id="card-posicao">
+        <p class="rotulo">Minha posição</p>
+        <form id="form-posicao" class="form-posicao" autocomplete="off">
+          <div class="campo">
+            <label for="campo-quantidade">Quantidade de ações</label>
+            <input type="number" id="campo-quantidade" min="0" step="any" placeholder="0">
+          </div>
+          <div class="campo">
+            <label for="campo-entrada">Cotação de compra (R$)</label>
+            <input type="number" id="campo-entrada" min="0" step="any" placeholder="0,00">
+          </div>
+          <div class="acoes-posicao">
+            <button type="submit" class="btn-primario">Analisar</button>
+            <button type="button" class="btn-secundario" id="btn-limpar-posicao">Limpar</button>
+          </div>
+          <p class="dica">Sem posição informada, o sistema avalia como quem ainda não investiu.</p>
+        </form>
+
+        <div id="resultado-posicao" class="resultado-posicao oculto">
+          <div class="veredito" id="veredito-posicao">
+            <h3 id="posicao-recomendacao">--</h3>
+            <span class="selo-sinal" id="posicao-sinal">--</span>
+          </div>
+          <p class="explicacao" id="posicao-explicacao"></p>
+          <div class="grade-posicao" id="grade-posicao"></div>
+          <p class="aviso" id="posicao-avisos"></p>
+        </div>
       </article>
 
       <!-- Três indicadores previstos -->

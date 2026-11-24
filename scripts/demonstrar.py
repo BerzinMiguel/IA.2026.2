@@ -35,13 +35,18 @@ METODO = """
     Saida: previsao dos tres indicadores para t+1 ... t+H.
 
   ETAPA 2 - SVR, um para cada horizonte
-    Kernel RBF (C=10, epsilon=0.1) sobre StandardScaler.
-      entrada  as tres previsoes multistep daquele horizonte
-      alvo     o fechamento real da bolsa em t+h
+    Kernel RBF sobre Min-Max ajustado no treino. C, gamma e epsilon saem de
+    uma busca em grade escolhida pelo menor MSE na validacao.
+      entrada  dolar e volatilidade previstos para aquele horizonte
+      alvo     a VARIACAO do fechamento, bolsa[t+h] / bolsa[t] - 1
+    O alvo e variacao, nao nivel de preco. No nivel, a faixa do treino
+    (14 a 43 reais) quase nao cruza a do teste (29 a 60) e a busca por menor
+    MSE converge para um preditor constante. A previsao volta para reais
+    como bolsa[t] * (1 + variacao), e as metricas ficam em reais.
     O treino percorre a serie em janela expansiva: cada origem usa apenas as
-    linhas ate ela, inclusive para calcular a escala. A separacao treino/teste
-    e temporal e estrita - alvos de treino anteriores a primeira origem de
-    teste, sem sobreposicao.
+    linhas ate ela, inclusive para calcular a escala. A separacao e temporal e
+    estrita em treino/validacao/teste: os alvos de cada parte sao anteriores a
+    primeira origem da parte seguinte, sem sobreposicao.
 
   ETAPA 3 - DECISAO
         variacao = (previsto - atual) / atual
@@ -50,6 +55,11 @@ METODO = """
         entre os dois     -> manter
     A confianca e a distancia relativa ao limiar, saturada em 1,0. Nao e
     probabilidade: so serve para ordenar dias entre si.
+
+  BASELINE, O CRITERIO DE ACEITE
+    Junto das metricas vai a persistencia: o preco em t+h e o preco de hoje.
+    E o modelo trivial. Um SVR que nao bate esses numeros nao justifica
+    existir, por melhor que seja o MSE dele contra si mesmo.
 
   POR QUE WALK-FORWARD
     Cada execucao recebe do backend apenas o historico ate a data de
@@ -60,13 +70,22 @@ METODO = """
 """
 
 LIMITE = """
-  O SVR com kernel RBF nao extrapola acima da faixa de precos que viu no
-  treino. Quando o preco sobe para um patamar novo, a previsao fica presa
-  perto da media do treino e a recomendacao vira retirar de forma
-  sistematica. Treinar apenas com as ultimas N observacoes (IA_MAX_OBS_TREINO)
-  reduz muito o efeito, porque aproxima a faixa do treino do preco atual.
-  A correcao de fundo e treinar sobre retorno (preco_futuro / preco_atual - 1)
-  em vez do nivel do preco.
+  RESOLVIDO - o colapso em preditor constante
+    Enquanto o alvo era o nivel do preco, o SVR com kernel RBF nao conseguia
+    extrapolar acima da faixa vista no treino. A busca em grade escolhia o
+    menor C e o menor gamma possiveis, o modelo virava uma constante (28,08
+    para qualquer entrada) e a recomendacao era retirar todo dia, com
+    confianca 1,0. Treinar sobre variacao resolveu: o alvo passou a ter a
+    mesma faixa no treino e no teste, e o MAE em h=2 caiu de 11,39 para 0,85.
+
+  LIMITE QUE PERMANECE - o ganho sobre a baseline e minimo
+    O modelo empata com a persistencia: bate ela por cerca de 1% no MAE em
+    h=1 e menos que isso em h=2. Dolar e volatilidade praticamente nao
+    carregam informacao sobre a variacao da acao em um ou dois pregoes, o que
+    e o esperado para dados diarios. Os parametros escolhidos pela grade
+    mudam muito conforme o recorte, sinal de que a busca esta ajustando ruido
+    da validacao. O resultado honesto do trabalho e este: a cadeia funciona,
+    esta medida de forma correta, e o poder preditivo e baixo.
 """
 
 
@@ -131,8 +150,19 @@ def main():
     print(f"\n    RECOMENDACAO: {saida['recomendacao'].upper()}   (confianca {saida['confianca']})")
 
     titulo(4, "QUALIDADE DO MODELO (corte de teste do treino do SVR)")
-    for chave, valor in entradas["metricas_modelo"].items():
-        print(f"  {chave:24} {valor}")
+    metricas = entradas["metricas_modelo"]
+    baseline = metricas.get("baseline_persistencia") or {}
+    for chave, valor in metricas.items():
+        if chave != "baseline_persistencia":
+            print(f"  {chave:24} {valor}")
+    if baseline:
+        print()
+        print("  COMPARACAO COM A BASELINE (previsto = preco de hoje)")
+        print(f"    {'':10} {'MAE':>10} {'RMSE':>10} {'MAPE_pct':>10}")
+        for nome, fonte in (("modelo", metricas), ("baseline", baseline)):
+            print(f"    {nome:10} {fonte['MAE']:10.4f} {fonte['RMSE']:10.4f} {fonte['MAPE_pct']:10.4f}")
+        ganho = 100 * (baseline["MAE"] - metricas["MAE"]) / baseline["MAE"]
+        print(f"    ganho do modelo sobre a baseline, em MAE: {ganho:+.2f}%")
     print("\n  MAE e RMSE estao na unidade do preco; MAPE, em percentual.")
     print("  O ultimo alvo de treino e anterior a primeira origem de teste.")
 
