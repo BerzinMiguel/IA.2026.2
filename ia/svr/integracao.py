@@ -6,7 +6,8 @@ import numpy as np
 import pandas as pd
 from ia.multistep import Multistep
 from ia.bases import PreparadorBases
-from .modelo import avaliar_svr, dividir_base_svr, prever_ativo, recomendar, treinar_svr
+from .modelo import (ALVO_RETORNO, PRECO_ORIGEM, avaliar_svr, baseline_persistencia,
+                     dividir_base_svr, prever_preco, recomendar, treinar_svr)
 
 COLUNAS = ("dolar", "bolsa", "volatilidade")
 
@@ -19,10 +20,14 @@ def prever_indicadores_multistep(historico, dimensao, horizonte):
     })
 
 
-def prever_com_multistep_e_svr(historico, dimensao, horizonte, modelos):
+def prever_com_multistep_e_svr(historico, dimensao, horizonte, modelos, preco_atual):
+    """Indicadores previstos e o fechamento em reais de cada horizonte.
+
+    O SVR devolve variação; `preco_atual` é o preço de origem que a converte.
+    """
     indicadores = prever_indicadores_multistep(historico, dimensao, horizonte)
     fechamentos = [
-        prever_ativo(modelos[h], linha.dolar, linha.volatilidade)
+        prever_preco(modelos[h], preco_atual, linha.dolar, linha.volatilidade)
         for h, linha in enumerate(indicadores.itertuples(index=False), 1)
     ]
     return indicadores, fechamentos
@@ -88,11 +93,14 @@ class PipelineIntegrado:
             previsoes = prever_indicadores_multistep(
                 dados.iloc[:origem + 1], self.dimensao, self.horizonte
             )
+            preco_origem = float(dados.iloc[origem]["bolsa"])
             for h in range(1, self.horizonte + 1):
+                alvo = float(dados.iloc[origem + h]["bolsa"])
                 linhas.append({"origem": dados.iloc[origem]["Data"],
                                "data_alvo": dados.iloc[origem + h]["Data"], "horizonte": h,
                                **previsoes.iloc[h - 1].to_dict(),
-                               "alvo": float(dados.iloc[origem + h]["bolsa"])})
+                               PRECO_ORIGEM: preco_origem, "alvo": alvo,
+                               ALVO_RETORNO: alvo / preco_origem - 1.0})
         if not linhas:
             raise ValueError("Dados insuficientes para gerar previsões fora da amostra.")
         return pd.DataFrame(linhas)
@@ -111,12 +119,13 @@ class PipelineIntegrado:
             treino, validacao, teste = dividir_base_svr(base, proporcoes)
             if len(treino) < 10 or len(teste) < 2:
                 raise ValueError(f"Horizonte {h}: exigidos >=10 treinos e >=2 testes após expurgo temporal.")
-            modelo = treinar_svr(treino, validacao, self.parametros_svr)
-            previsto, erros = avaliar_svr(modelo, teste)
+            modelo = treinar_svr(treino, validacao, self.parametros_svr, alvo=ALVO_RETORNO)
+            previsto, erros = avaliar_svr(modelo, teste, base_preco=PRECO_ORIGEM)
             inicio_teste = teste.origem.min()
             metricas[str(h)] = {
                 **erros, "amostras_treino": len(treino), "amostras_validacao": len(validacao),
                 "amostras_teste": len(teste), "MSE_validacao": modelo.mse_validacao,
+                "baseline_persistencia": baseline_persistencia(teste),
                 "parametros": {nome: modelo.estimador.get_params()[nome] for nome in ("C", "gamma", "epsilon")},
                 "ultimo_alvo_treino": treino.data_alvo.max().date().isoformat(),
                 "primeira_origem_teste": inicio_teste.date().isoformat(),
@@ -156,7 +165,7 @@ class PipelineIntegrado:
                 raise ValueError("Forneça uma data diária futura crescente e única por horizonte.")
             datas = [data.date().isoformat() for data in datas]
         previsoes, fechamentos = prever_com_multistep_e_svr(
-            self.dados, self.dimensao, self.horizonte, self.modelos
+            self.dados, self.dimensao, self.horizonte, self.modelos, float(origem.bolsa)
         )
         if (previsoes.to_numpy() < 0).any():
             avisos.append("MQO retornou indicador negativo; valor preservado, sem truncamento.")
@@ -181,12 +190,12 @@ class PipelineIntegrado:
             raise RuntimeError("Não há pipeline treinado.")
         caminho = Path(caminho)
         caminho.parent.mkdir(parents=True, exist_ok=True)
-        joblib.dump({"versao": 2, "pipeline": self}, caminho)
+        joblib.dump({"versao": 3, "pipeline": self}, caminho)
 
     @classmethod
     def carregar(cls, caminho):
         """Somente artefatos confiáveis: joblib pode executar código."""
         artefato = joblib.load(caminho)
-        if not isinstance(artefato, dict) or artefato.get("versao") != 2 or not isinstance(artefato.get("pipeline"), cls):
-            raise ValueError("Artefato incompatível. Treine novamente para gerar o pipeline.joblib de duas entradas.")
+        if not isinstance(artefato, dict) or artefato.get("versao") != 3 or not isinstance(artefato.get("pipeline"), cls):
+            raise ValueError("Artefato incompatível. Treine novamente: a versão 3 prevê variação, não nível de preço.")
         return artefato["pipeline"]

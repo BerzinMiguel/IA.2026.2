@@ -17,6 +17,8 @@ Variáveis de ambiente, todas opcionais:
     IA_MINIMO_TREINO      observações mínimas antes da primeira origem (60)
     IA_LIMIAR             banda de indiferença da decisão (0.02)
     IA_MAX_OBS_TREINO     usa só as N últimas observações (0 = a série toda)
+    IA_FRACAO_VALIDACAO   fração das origens usada na validação (0.2)
+    IA_FRACAO_TESTE       fração das origens usada no teste (0.2)
     IA_ARTEFATO           pipeline.joblib já treinado, dispensa treinar
     IA_HORIZONTE_DECISAO  horizonte usado na decisão (0 = o último)
 
@@ -54,6 +56,9 @@ def _opcoes() -> dict:
         "minimo_treino": int(os.getenv("IA_MINIMO_TREINO", "60")),
         "limiar": float(os.getenv("IA_LIMIAR", "0.02")),
         "max_obs": int(os.getenv("IA_MAX_OBS_TREINO", "0")),
+        # 0.2/0.2 = 60/20/20. Para o 80/10/10 use 0.1 e 0.1.
+        "fracao_validacao": float(os.getenv("IA_FRACAO_VALIDACAO", "0.2")),
+        "fracao_teste": float(os.getenv("IA_FRACAO_TESTE", "0.2")),
         "artefato": os.getenv("IA_ARTEFATO") or None,
         "horizonte_decisao": int(os.getenv("IA_HORIZONTE_DECISAO", "0")),
     }
@@ -90,6 +95,8 @@ def _treinar(quadros: list[pd.DataFrame], opcoes: dict) -> PipelineIntegrado:
         horizonte=opcoes["horizonte"],
         minimo_treino=opcoes["minimo_treino"],
         limiar=opcoes["limiar"],
+        fracao_validacao=opcoes["fracao_validacao"],
+        fracao_teste=opcoes["fracao_teste"],
     )
     pipeline.treinar(*quadros)  # sem pasta_saida: nada é gravado em disco aqui
     return pipeline
@@ -108,7 +115,8 @@ def _carregar_artefato(caminho: str, data_referencia: pd.Timestamp) -> PipelineI
 def _obter_pipeline(quadros, data_referencia: pd.Timestamp, opcoes: dict) -> PipelineIntegrado:
     """Devolve um pipeline treinado somente com dados até `data_referencia`."""
     chave = (opcoes["dimensao"], opcoes["horizonte"], opcoes["minimo_treino"],
-             opcoes["limiar"], opcoes["max_obs"], opcoes["artefato"])
+             opcoes["limiar"], opcoes["max_obs"], opcoes["artefato"],
+             opcoes["fracao_validacao"], opcoes["fracao_teste"])
     if (_CACHE["chave"] == chave and _CACHE["pipeline"] is not None
             and _CACHE["treinado_ate"] <= data_referencia):
         return _CACHE["pipeline"]
