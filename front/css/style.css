@@ -418,3 +418,117 @@ select:focus { outline: none; border-color: var(--dourado); }
   .cabecalho-tela { flex-direction: column; align-items: flex-start; gap: 10px; }
   .cabecalho-tela .descricao { text-align: left; }
 }
+/* ===== Minha posição (Etapa 5: decisão com a posição do usuário) ===== */
+.card-posicao { margin-top: 18px; }
+
+.form-posicao {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 14px;
+  align-items: end;
+}
+.form-posicao .campo { display: flex; flex-direction: column; gap: 6px; }
+.form-posicao label { font-size: .78rem; color: var(--texto-suave); letter-spacing: .02em; }
+.form-posicao input {
+  padding: 9px 11px;
+  border: 1px solid var(--linha);
+  border-radius: 8px;
+  background: var(--superficie);
+  color: var(--texto);
+  font-size: .95rem;
+  font-family: inherit;
+}
+.form-posicao input:focus {
+  outline: none;
+  border-color: var(--dourado);
+  box-shadow: 0 0 0 3px rgba(176, 141, 87, .16);
+}
+.acoes-posicao { display: flex; gap: 8px; }
+.form-posicao .btn-primario,
+.form-posicao .btn-secundario {
+  padding: 9px 16px;
+  border-radius: 8px;
+  font-size: .9rem;
+  font-family: inherit;
+  cursor: pointer;
+  border: 1px solid var(--linha);
+}
+.form-posicao .btn-primario { background: var(--marinho); color: #fff; border-color: var(--marinho); }
+.form-posicao .btn-secundario { background: transparent; color: var(--texto-suave); }
+.form-posicao .dica {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: .78rem;
+  color: var(--texto-suave);
+}
+
+.resultado-posicao { margin-top: 18px; border-top: 1px solid var(--linha); padding-top: 16px; }
+.resultado-posicao.oculto { display: none; }
+
+.veredito { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.veredito h3 { margin: 0; font-size: 1.35rem; color: var(--titulo); letter-spacing: .02em; }
+
+.selo-sinal {
+  font-size: .74rem;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  letter-spacing: .03em;
+}
+.selo-sinal.sinal-alta   { color: var(--positivo); }
+.selo-sinal.sinal-baixa  { color: var(--negativo); }
+.selo-sinal.sinal-neutro { color: var(--neutro); }
+
+.resultado-posicao .explicacao {
+  margin: 10px 0 16px;
+  font-size: .88rem;
+  line-height: 1.5;
+  color: var(--texto-suave);
+}
+
+.grade-posicao {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+.grade-posicao .item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid var(--linha);
+  border-radius: 8px;
+  background: var(--fundo);
+}
+.grade-posicao .item.destaque { border-color: var(--dourado); }
+.grade-posicao .rotulo { font-size: .72rem; color: var(--texto-suave); }
+.grade-posicao strong { font-size: .98rem; color: var(--texto); }
+
+/* A faixa de cor acompanha a recomendação, como no card do dia. */
+.card-posicao.aplicar      .veredito h3 { color: var(--positivo); }
+.card-posicao.aplicar-mais .veredito h3 { color: var(--positivo); }
+.card-posicao.manter       .veredito h3 { color: var(--neutro); }
+.card-posicao.retirar      .veredito h3 { color: var(--negativo); }
+
+[data-tema="escuro"] .form-posicao input { background: var(--fundo); }
+[data-tema="escuro"] .grade-posicao .item { background: transparent; }
+
+@media (max-width: 640px) {
+  .form-posicao { grid-template-columns: 1fr; }
+  .acoes-posicao { width: 100%; }
+  .form-posicao .btn-primario { flex: 1; }
+}
+
+/* Retorno visual do botão Atualizar: sem isso, "ja_existia" é silencioso. */
+.status-atualizacao {
+  flex-basis: 100%;
+  margin: 0 0 12px;
+  text-align: right;
+  font-size: 12px;
+  line-height: 1.45;
+  /* Fica sobre a barra marinho do topo, não sobre o fundo claro das telas. */
+  color: rgba(255, 255, 255, .72);
+  letter-spacing: .02em;
+}
+.status-atualizacao.oculto { display: none; }
+.status-atualizacao.erro { color: #f0a9a2; }
