@@ -5,45 +5,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from ia.bases import PreparadorBases
+from Bases_para_Treinamento import PreparadorBases
 
 
 class Multistep:
     def __init__(self, pasta_saida="resultados_multistep"):
         self.preparador = PreparadorBases(Path(pasta_saida) / "normalizados")
         self.escala = None
-
-    @staticmethod
-    def prever_serie(treino, historico, dimensao, horizonte):
-        """MQO direto em memória; escala e coeficientes usam só treino.
-
-        Retorna [t+1,...,t+H] na unidade original. O chamador garante
-        que treino e histórico contêm apenas observações disponíveis em t.
-        """
-        if any(isinstance(v, bool) or not isinstance(v, int) or v < 1
-               for v in (dimensao, horizonte)):
-            raise ValueError("Dimensão e horizonte devem ser inteiros positivos.")
-        treino = np.asarray(treino, dtype=float)
-        historico = np.asarray(historico, dtype=float)
-        if treino.ndim != 1 or historico.ndim != 1:
-            raise ValueError("Esperadas séries unidimensionais.")
-        if len(treino) < dimensao + horizonte or len(historico) < dimensao:
-            raise ValueError("Histórico insuficiente para dimensão e horizonte.")
-        if not np.isfinite(treino).all() or not np.isfinite(historico).all():
-            raise ValueError("Séries devem conter somente valores finitos.")
-        minimo, maximo = PreparadorBases.limites_min_max(treino)
-        if minimo == maximo:
-            raise ValueError("Série constante no treino: escala Min-Max indefinida.")
-        serie = PreparadorBases.normalizar_valores(treino, minimo, maximo)
-        janela = np.r_[PreparadorBases.normalizar_valores(historico[-dimensao:], minimo, maximo), 1.0]
-        previsoes = []
-        for h in range(1, horizonte + 1):
-            coeficientes = Multistep._ajustar_mqo(serie, dimensao, h)
-            previsoes.append(float(janela @ coeficientes))
-        resultado = np.asarray(previsoes) * (maximo - minimo) + minimo
-        if not np.isfinite(resultado).all():
-            raise ValueError("Multistep produziu previsão não finita.")
-        return resultado
 
     @staticmethod
     def _nome_coluna(base, coluna):
@@ -94,13 +62,8 @@ class Multistep:
             ):
                 raise ValueError("As bases devem seguir a ordem temporal treino, validação e teste.")
         serie = [base[coluna].to_numpy(dtype=float) for base in bases]
-        coeficientes = self._ajustar_mqo(serie[0], dimensao, horizonte)
-        historico = np.concatenate(serie)
-        janela = list(historico[-dimensao:]) + [1.0]
-        return float(np.asarray(janela) @ coeficientes)
+        treino_valores = serie[0]
 
-    @staticmethod
-    def _ajustar_mqo(treino_valores, dimensao, horizonte):
         # Cada linha contém d valores passados e uma coluna de intercepto.
         X, y = [], []
         for alvo in range(dimensao + horizonte - 1, len(treino_valores)):
@@ -110,7 +73,10 @@ class Multistep:
         if not X:
             raise ValueError("A base de treino é pequena para essa dimensão e horizonte.")
 
-        return np.linalg.pinv(np.asarray(X)) @ np.asarray(y)
+        coeficientes = np.linalg.pinv(np.asarray(X)) @ np.asarray(y)
+        historico = np.concatenate(serie)
+        janela = list(historico[-dimensao:]) + [1.0]
+        return float(np.asarray(janela) @ coeficientes)
 
     def Modelo_multistep(
         self, treino, validacao, teste,
